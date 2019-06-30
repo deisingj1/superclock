@@ -1,16 +1,19 @@
-#include "alarm.h"
+/* Simple HTTP Server Example
 
-static const char *TAG = "webex";
-int disp_brightness = 4;
+   This example code is in the Public Domain (or CC0 licensed, at your option.)
 
+   Unless required by applicable law or agreed to in writing, this
+   software is distributed on an "AS IS" BASIS, WITHOUT WARRANTIES OR
+   CONDITIONS OF ANY KIND, either express or implied.
+*/
 
-/* A simple example that demonstrates how to create GET and POST
- * handlers for the web server.
- */
+#include "webui.h"
 
+static const char *TAG="server";
+static httpd_handle_t server = NULL;
 
 /* An HTTP GET handler */
-static esp_err_t hello_get_handler(httpd_req_t *req)
+esp_err_t hello_get_handler(httpd_req_t *req)
 {
     char*  buf;
     size_t buf_len;
@@ -54,9 +57,8 @@ static esp_err_t hello_get_handler(httpd_req_t *req)
             ESP_LOGI(TAG, "Found URL query => %s", buf);
             char param[32];
             /* Get value of expected key from query string */
-            if (httpd_query_key_value(buf, "brightness", param, sizeof(param)) == ESP_OK) {
+            if (httpd_query_key_value(buf, "query1", param, sizeof(param)) == ESP_OK) {
                 ESP_LOGI(TAG, "Found URL query parameter => query1=%s", param);
-		disp_brightness = atoi(param);
             }
             if (httpd_query_key_value(buf, "query3", param, sizeof(param)) == ESP_OK) {
                 ESP_LOGI(TAG, "Found URL query parameter => query3=%s", param);
@@ -85,7 +87,7 @@ static esp_err_t hello_get_handler(httpd_req_t *req)
     return ESP_OK;
 }
 
-static const httpd_uri_t hello = {
+httpd_uri_t hello = {
     .uri       = "/hello",
     .method    = HTTP_GET,
     .handler   = hello_get_handler,
@@ -95,7 +97,7 @@ static const httpd_uri_t hello = {
 };
 
 /* An HTTP POST handler */
-static esp_err_t echo_post_handler(httpd_req_t *req)
+esp_err_t echo_post_handler(httpd_req_t *req)
 {
     char buf[100];
     int ret, remaining = req->content_len;
@@ -126,44 +128,17 @@ static esp_err_t echo_post_handler(httpd_req_t *req)
     return ESP_OK;
 }
 
-static const httpd_uri_t echo = {
+httpd_uri_t echo = {
     .uri       = "/echo",
     .method    = HTTP_POST,
     .handler   = echo_post_handler,
     .user_ctx  = NULL
 };
 
-/* This handler allows the custom error handling functionality to be
- * tested from client side. For that, when a PUT request 0 is sent to
- * URI /ctrl, the /hello and /echo URIs are unregistered and following
- * custom error handler http_404_error_handler() is registered.
- * Afterwards, when /hello or /echo is requested, this custom error
- * handler is invoked which, after sending an error message to client,
- * either closes the underlying socket (when requested URI is /echo)
- * or keeps it open (when requested URI is /hello). This allows the
- * client to infer if the custom error handler is functioning as expected
- * by observing the socket state.
- */
-esp_err_t http_404_error_handler(httpd_req_t *req, httpd_err_code_t err)
-{
-    if (strcmp("/hello", req->uri) == 0) {
-        httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "/hello URI is not available");
-        /* Return ESP_OK to keep underlying socket open */
-        return ESP_OK;
-    } else if (strcmp("/echo", req->uri) == 0) {
-        httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "/echo URI is not available");
-        /* Return ESP_FAIL to close underlying socket */
-        return ESP_FAIL;
-    }
-    /* For any other URI send 404 and close socket */
-    httpd_resp_send_err(req, HTTPD_404_NOT_FOUND, "Some 404 error message");
-    return ESP_FAIL;
-}
-
 /* An HTTP PUT handler. This demonstrates realtime
  * registration and deregistration of URI handlers
  */
-static esp_err_t ctrl_put_handler(httpd_req_t *req)
+esp_err_t ctrl_put_handler(httpd_req_t *req)
 {
     char buf;
     int ret;
@@ -176,19 +151,15 @@ static esp_err_t ctrl_put_handler(httpd_req_t *req)
     }
 
     if (buf == '0') {
-        /* URI handlers can be unregistered using the uri string */
+        /* Handler can be unregistered using the uri string */
         ESP_LOGI(TAG, "Unregistering /hello and /echo URIs");
         httpd_unregister_uri(req->handle, "/hello");
         httpd_unregister_uri(req->handle, "/echo");
-        /* Register the custom error handler */
-        httpd_register_err_handler(req->handle, HTTPD_404_NOT_FOUND, http_404_error_handler);
     }
     else {
         ESP_LOGI(TAG, "Registering /hello and /echo URIs");
         httpd_register_uri_handler(req->handle, &hello);
         httpd_register_uri_handler(req->handle, &echo);
-        /* Unregister custom error handler */
-        httpd_register_err_handler(req->handle, HTTPD_404_NOT_FOUND, NULL);
     }
 
     /* Respond with empty body */
@@ -196,14 +167,14 @@ static esp_err_t ctrl_put_handler(httpd_req_t *req)
     return ESP_OK;
 }
 
-static const httpd_uri_t ctrl = {
+httpd_uri_t ctrl = {
     .uri       = "/ctrl",
     .method    = HTTP_PUT,
     .handler   = ctrl_put_handler,
     .user_ctx  = NULL
 };
 
-static httpd_handle_t start_webserver(void)
+httpd_handle_t start_webserver(void)
 {
     httpd_handle_t server = NULL;
     httpd_config_t config = HTTPD_DEFAULT_CONFIG();
@@ -223,29 +194,43 @@ static httpd_handle_t start_webserver(void)
     return NULL;
 }
 
-static void stop_webserver(httpd_handle_t server)
+void stop_webserver(httpd_handle_t server)
 {
     // Stop the httpd server
     httpd_stop(server);
 }
 
-static void disconnect_handler(void* arg, esp_event_base_t event_base, 
-                               int32_t event_id, void* event_data)
+static esp_err_t event_handler(void *ctx, system_event_t *event)
 {
-    httpd_handle_t* server = (httpd_handle_t*) arg;
-    if (*server) {
-        ESP_LOGI(TAG, "Stopping webserver");
-        stop_webserver(*server);
-        *server = NULL;
-    }
-}
+    httpd_handle_t *server = (httpd_handle_t *) ctx;
 
-static void connect_handler(void* arg, esp_event_base_t event_base, 
-                            int32_t event_id, void* event_data)
-{
-    httpd_handle_t* server = (httpd_handle_t*) arg;
-    if (*server == NULL) {
-        ESP_LOGI(TAG, "Starting webserver");
-        *server = start_webserver();
+    switch(event->event_id) {
+    case SYSTEM_EVENT_STA_START:
+        ESP_LOGI(TAG, "SYSTEM_EVENT_STA_START");
+        ESP_ERROR_CHECK(esp_wifi_connect());
+        break;
+    case SYSTEM_EVENT_STA_GOT_IP:
+        ESP_LOGI(TAG, "SYSTEM_EVENT_STA_GOT_IP");
+        ESP_LOGI(TAG, "Got IP: '%s'",
+                ip4addr_ntoa(&event->event_info.got_ip.ip_info.ip));
+
+        /* Start the web server */
+        if (*server == NULL) {
+            *server = start_webserver();
+        }
+        break;
+    case SYSTEM_EVENT_STA_DISCONNECTED:
+        ESP_LOGI(TAG, "SYSTEM_EVENT_STA_DISCONNECTED");
+        ESP_ERROR_CHECK(esp_wifi_connect());
+
+        /* Stop the web server */
+        if (*server) {
+            stop_webserver(*server);
+            *server = NULL;
+        }
+        break;
+    default:
+        break;
     }
+    return ESP_OK;
 }

@@ -1,4 +1,5 @@
 #include "driver/ledc.h"
+#include "esp_log.h"
 
 #define ALARM_ACT_PIN 21
 #define ALARM_TONE_PIN 4

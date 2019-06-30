@@ -3,6 +3,8 @@
  */
 #include "alarm.h"
 
+static const char *TAG = "alarm";
+
 // Store config for alarm
 ledc_channel_config_t alarm_conf = {
     .channel = LEDC_LS_CH3_CHANNEL,
@@ -14,7 +16,7 @@ ledc_channel_config_t alarm_conf = {
 
 // Set the config for the timer.
 ledc_timer_config_t ledc_timer = {
-    .duty_resolution = LEDC_TIMER_1_BIT, // resolution of PWM duty, fixed at 50%
+    .duty_resolution = LEDC_TIMER_8_BIT, // resolution of PWM duty, fixed at 50%
     .freq_hz = NOTE_A4,                  // frequency of PWM signal
     .speed_mode = LEDC_HS_MODE,          // timer mode
     .timer_num = LEDC_HS_TIMER           // timer index
@@ -53,6 +55,7 @@ void init_alarm()
  */
 esp_err_t alarm_activate(alarm_freq_t freq)
 {
+    ESP_LOGI(TAG,"Turning on alarm");
     // Turn pin on that turns on amp
     gpio_set_level(ALARM_ACT_PIN, 1);
 
@@ -61,7 +64,7 @@ esp_err_t alarm_activate(alarm_freq_t freq)
     ledc_timer_config(&ledc_timer);
 
     // I don't think I actually need to do any of this
-    esp_err_t set_status = ledc_set_duty(alarm_conf.speed_mode, alarm_conf.channel, 1);
+    esp_err_t set_status = ledc_set_duty(alarm_conf.speed_mode, alarm_conf.channel, 255);
     if (set_status == ESP_OK)
     {
         return ledc_update_duty(alarm_conf.speed_mode, alarm_conf.channel);
@@ -75,6 +78,7 @@ esp_err_t alarm_activate(alarm_freq_t freq)
  */
 esp_err_t alarm_deactivate()
 {
+    ESP_LOGI(TAG,"Turning off alarm");
     gpio_set_level(ALARM_ACT_PIN, 0);
     return ESP_OK;
 }
